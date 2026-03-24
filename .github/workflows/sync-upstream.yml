@@ -46,20 +46,19 @@ jobs:
 
       - name: Pull new skills
         if: steps.check.outputs.skip == 'false'
-        run: ./scripts/pull-skills.sh "${{ steps.upstream.outputs.tag }}"
+        run: ./scripts/pull-skills.sh "${{ steps.upstream.outputs.tag }}" /tmp/new-skills
 
       - name: Pull previous skills for diff
         if: steps.check.outputs.skip == 'false'
         run: |
-          mkdir -p /tmp/old-skills
-          ./scripts/pull-skills.sh "v${{ steps.pinned.outputs.version }}" /tmp/old-skills
+          cp -R skills/ /tmp/old-skills
 
       - name: Categorize changes
         if: steps.check.outputs.skip == 'false'
         id: diff
         run: |
           OLD_FILES=$(cd /tmp/old-skills && find . -type f | sort)
-          NEW_FILES=$(cd skills && find . -type f | sort)
+          NEW_FILES=$(cd /tmp/new-skills && find . -type f | sort)
           if [ "$OLD_FILES" != "$NEW_FILES" ]; then
             echo "structural=true" >> "$GITHUB_OUTPUT"
           else
@@ -89,41 +88,33 @@ jobs:
           NEW_VERSION=$(python3 -c "import json; print(json.load(open('.claude-plugin/plugin.json'))['version'])")
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .claude-plugin/plugin.json
+
+          # Clean up old skills, copy new ones
+          rm -rf skills/
+          cp -R /tmp/new-skills/* skills/ 2>/dev/null || true
+
+          git add .claude-plugin/plugin.json skills/
           git commit -m "chore: sync cmux skills to v${{ steps.upstream.outputs.version }}"
-          git push origin main
-
-          git checkout release 2>/dev/null || git checkout -b release
-          git merge main --no-edit
-
-          ./scripts/pull-skills.sh "${{ steps.upstream.outputs.tag }}"
-          sed -i '/^skills\/$/d' .gitignore
-          git add skills/ .gitignore
-          git commit -m "release: v${NEW_VERSION} (cmux ${{ steps.upstream.outputs.version }})"
           git tag "v${NEW_VERSION}"
-          git push origin release --tags
-
-          git checkout main
+          git push origin main --tags
 
       - name: Open PR for structural changes
         if: steps.check.outputs.skip == 'false' && steps.diff.outputs.structural == 'true'
         run: |
           BRANCH="upstream-sync/${{ steps.upstream.outputs.version }}"
-          git checkout -b "$BRANCH"
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add .claude-plugin/plugin.json
+          git checkout -b "$BRANCH"
+
+          rm -rf skills/
+          cp -R /tmp/new-skills/* skills/ 2>/dev/null || true
+
+          git add .claude-plugin/plugin.json skills/
           git commit -m "chore: sync cmux skills to v${{ steps.upstream.outputs.version }} (structural changes)"
           git push origin "$BRANCH"
           gh pr create \
             --title "Upstream sync: cmux v${{ steps.upstream.outputs.version }} (structural)" \
-            --body "Structural changes detected in upstream skills. Review the diff before merging.
-
-          After merging, manually create the release:
-          1. Checkout release branch
-          2. Merge main
-          3. Run ./scripts/pull-skills.sh v${{ steps.upstream.outputs.version }}
-          4. Bump version to minor, commit, tag, push" \
+            --body "Structural changes detected in upstream skills. Review the diff before merging. After merging, tag the merge commit with the new version." \
             --label "upstream-sync"
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

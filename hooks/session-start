@@ -1,0 +1,37 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+PLUGIN_ROOT="${CMUX_SKILLS_ROOT:-$(cd "$(dirname "$0")/.." && pwd)}"
+PINNED_VERSION=$(python3 -c "import json; print(json.load(open('$PLUGIN_ROOT/.claude-plugin/plugin.json'))['cmux_version'])")
+
+if command -v cmux >/dev/null 2>&1; then
+    if command -v gtimeout >/dev/null 2>&1; then
+        LOCAL_VERSION=$(gtimeout 2 cmux --version 2>/dev/null | awk '{print $2}' || echo "")
+    elif command -v timeout >/dev/null 2>&1; then
+        LOCAL_VERSION=$(timeout 2 cmux --version 2>/dev/null | awk '{print $2}' || echo "")
+    else
+        LOCAL_VERSION=$(cmux --version 2>/dev/null | awk '{print $2}' || echo "")
+    fi
+else
+    echo '{"warning": "cmux not found. Install cmux to use these skills."}' >&2
+    exit 0
+fi
+
+if [ -z "$LOCAL_VERSION" ]; then
+    echo '{"warning": "cmux not found. Install cmux to use these skills."}' >&2
+    exit 0
+fi
+
+if [ "$LOCAL_VERSION" = "$PINNED_VERSION" ]; then
+    exit 0
+fi
+
+SORTED_FIRST=$(printf '%s\n%s\n' "$LOCAL_VERSION" "$PINNED_VERSION" | sort -V | head -n1)
+
+if [ "$SORTED_FIRST" = "$PINNED_VERSION" ]; then
+    echo "{\"warning\": \"cmux skills are behind your cmux (local: $LOCAL_VERSION, skills: $PINNED_VERSION). Skills may be missing new features.\"}" >&2
+else
+    echo "{\"warning\": \"cmux skills expect newer cmux (local: $LOCAL_VERSION, skills: $PINNED_VERSION). Some commands may not work.\"}" >&2
+fi
+
+exit 0

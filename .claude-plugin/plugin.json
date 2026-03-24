@@ -1,0 +1,6 @@
+{
+  "name": "cmux-skills-plugin",
+  "description": "cmux topology and browser/markdown skills, version-locked to your cmux installation",
+  "version": "1.0.0",
+  "cmux_version": "0.62.2"
+}
